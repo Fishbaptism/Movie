@@ -13,15 +13,18 @@ class UserModel():
     def generate_new_user(self):
         record = []
         #print("Begin to collect record")
-        while(self.data.iloc[self.rating_index].userId == self.userId):
+        #print(self.rating_index,self.data.iloc[self.rating_index].userId)
+        if self.userId > 1409:
+            self.userId = 758   #Change the start and end user Id here
+            self.rating_index = 0
+        while(self.rating_index < 99224 and self.data.iloc[self.rating_index].userId == self.userId):
             if self.data.iloc[self.rating_index].rating > 3:
                 record += [self.data.iloc[self.rating_index].movieId]    
             self.rating_index += 1
         self.userId += 1 #prepare for the next user
-        if self.userId > 1409: self.userId = 758   #Change the start and end user Id here
 
         #print("User record is ", record)
-        return record
+        return set(record)
 
     def reset(self):
         self.userId = 758
@@ -34,7 +37,8 @@ class GridworldEnv(gym.Env):
         self.size = n
         self.gridworld = gridworld
         self.recommendations = set([])
-        self.click_rate = 0
+        self.precision_sum = 0
+        self.recall_sum = 0
         self.interaction_times = 0
 
 
@@ -45,7 +49,7 @@ class GridworldEnv(gym.Env):
 
         #define the initial user
         self.position = ()
-        self.user_record = []
+        self.user_record = set([])
         self.user_model = UserModel(self.data)
 
         #Initialize
@@ -87,11 +91,11 @@ class GridworldEnv(gym.Env):
         # User click item in recommendations/len(recommendations)
         self.interaction_times = self.interaction_times + 1
         number = 0
-        for item in recommendations:
-            if item in self.user_record:
-                number = number + 1
-        self.click_rate = self.click_rate + number/len(recommendations)
-        return self.click_rate/self.interaction_times
+        #print(self.interaction_times)
+        number = len(self.user_record & recommendations)
+        self.recall_sum += number/len(self.user_record)
+        self.precision_sum += number/len(recommendations)
+        return self.precision_sum/self.interaction_times, self.recall_sum/self.interaction_times
 
 
     def step(self, action):
@@ -114,7 +118,7 @@ class GridworldEnv(gym.Env):
 
         #Add current recommendations to the set
         self.recommendations = self.recommendations | set(current_recommendation)
-        info = self.CTR(current_recommendation)   #info is the CTR
+        info = None
 
         #For a new user
         done = True
@@ -122,6 +126,7 @@ class GridworldEnv(gym.Env):
             if i not in self.recommendations:
                 done = False
         if done is True:
+            info = self.CTR(self.recommendations)   #info is the CTR
             self.new_user()
             state = self.position
         #Return state, reward and done.
@@ -133,7 +138,7 @@ class GridworldEnv(gym.Env):
         self.click_rate = 0
         self.interaction_times = 0
         self.position = ()
-        self.user_record = []
+        self.user_record = set([])
         self.user_model.reset()
         self.new_user()
 
@@ -190,24 +195,25 @@ if __name__ == "__main__":
     state = env.position
     action_list = ['up', 'down', 'right', 'left']
     QL = QLearningTable(actions = action_list)
-
     print("State is ", state)
-    
+
     for episode in range(100000):
         done = False
         while not done:
             #Choose an action
             action = QL.choose_action(str(state))
-
             #Get reward
             next_state, reward, done, info = env.step(action)
-
+            
             #Learning
             QL.learn(str(state), action, reward, str(next_state), done)
 
             #Update state
             state = next_state
-        if(episode%1000 == 0):
-            print("CTR is ", info)
+            
+            if info is not None:
+                precision, recall = info
+            
+            if(episode%1000 == 999):
+                print("Precision: ", precision, ", Recall: ", recall)
     print("End")
-
