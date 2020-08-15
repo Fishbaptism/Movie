@@ -31,16 +31,11 @@ class UserModel():
         self.rating_index = 0
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, n):
+    def __init__(self, data, gridworld, n, user = False):
         self.data = data
 
         self.size = n
         self.gridworld = gridworld
-        self.recommendations = set([])
-        self.precision_sum = 0
-        self.recall_sum = 0
-        self.interaction_times = 0
-
 
         #The left top most point is (0,0)
         self.action_space = spaces.Discrete(4)
@@ -48,9 +43,11 @@ class GridworldEnv(gym.Env):
         self.actions_pos_dict = {'up':[-1,0], 'down':[1,0], 'right':[0,1], 'left':[0,-1],}
 
         #define the initial user
-        self.position = ()
+        self.user = user
         self.user_record = set([])
         self.user_model = UserModel(self.data)
+        self.train_x = 0
+        self.train_y = 0
 
         #Initialize
         self.reset()
@@ -64,7 +61,7 @@ class GridworldEnv(gym.Env):
 
     def initial_pos(self):
         # initial the starting position in the gridworld
-        similarity = -10e9
+        similarity = -1e9
         position = ()
         for i in range(self.size):
             for j in range(self.size):
@@ -89,14 +86,20 @@ class GridworldEnv(gym.Env):
     def CTR(self, recommendations):
         # calculate click through rate of the whole recommendations
         # User click item in recommendations/len(recommendations)
-        self.interaction_times = self.interaction_times + 1
         number = 0
         #print(self.interaction_times)
         number = len(self.user_record & recommendations)
-        self.recall_sum += number/len(self.user_record)
-        self.precision_sum += number/len(recommendations)
-        return self.precision_sum/self.interaction_times, self.recall_sum/self.interaction_times
+        self.recall = self.recall * 0.9 + number/len(self.user_record) * 0.1
+        self.precision = self.precision * 0.9 + number/len(recommendations) * 0.1
+        return self.precision, self.recall
 
+    def update_train(self):
+        self.train_y += 1
+        if self.train_y == self.size:
+            self.train_y = 0
+            self.train_x += 1
+            if self.train_x == self.size:
+                self.train_x = 0
 
     def step(self, action):
         # define the step
@@ -125,22 +128,40 @@ class GridworldEnv(gym.Env):
         for i in next_recommendation:
             if i not in self.recommendations:
                 done = False
-        if done is True:
-            info = self.CTR(self.recommendations)   #info is the CTR
-            self.new_user()
-            state = self.position
+                break
+
+        if done:
+            reward = 0
+            if self.user:
+                info = self.CTR(self.recommendations)   #info is the CTR
+                self.new_user()
+                state = self.position
+            else:
+                info = self.reward_sum
+                self.reward_sum = 0
+                self.position = (self.train_x, self.train_y)
+                state = self.position
+                self.update_train()
+            self.recommendations = set([])
+        else:
+            self.reward_sum += reward
         #Return state, reward and done.
         #Here, self.state is the next state
         return state, reward, done, info
     
     def reset(self):
         self.recommendations = set([])
-        self.click_rate = 0
-        self.interaction_times = 0
         self.position = ()
-        self.user_record = set([])
-        self.user_model.reset()
-        self.new_user()
+        if self.user:
+            self.precision = 0
+            self.recall = 0
+            self.user_record = set([])
+            self.user_model.reset()
+            self.new_user()
+        else:
+            self.reward_sum = 0
+            self.position = (self.train_x, self.train_y)
+            self.update_train()
 
 class QLearningTable:
     def __init__(self, actions, learning_rate=0.01, reward_decay=0.9, e_greedy=0.9):
@@ -149,19 +170,31 @@ class QLearningTable:
         self.gamma = reward_decay
         self.epsilon = e_greedy
         self.q_table = pd.DataFrame(columns=self.actions, dtype=np.float64)
+        self.q_table = self.q_table.append(
+                pd.Series(
+                    [0.]*len(self.actions),
+                    index=self.q_table.columns,
+                    name='terminal',
+                )
+            )
 
-    def choose_action(self, observation):
+    def choose_action(self, observation, greedy = False):
         self.check_state_exist(observation)
-        # action selection
-        if np.random.uniform() < self.epsilon:
-            # choose best action
-            #print("here, observation is ", observation)
-            state_action = self.q_table.loc[observation, :]
-            # some actions may have the same value, randomly choose on in these actions
-            action = np.random.choice(state_action[state_action == np.max(state_action)].index)
+        if greedy:
+            # action selection
+            if np.random.uniform() < self.epsilon:
+                # choose best action
+                #print("here, observation is ", observation)
+                state_action = self.q_table.loc[observation, :]
+                # some actions may have the same value, randomly choose on in these actions
+                action = np.random.choice(state_action[state_action == np.max(state_action)].index)
+            else:
+                # choose random action
+                action = np.random.choice(self.actions)
         else:
-            # choose random action
-            action = np.random.choice(self.actions)
+            state_action = self.q_table.loc[observation, :]
+            action = np.random.choice(state_action[state_action == np.max(state_action)].index)
+
         return action
 
     def learn(self, s, a, r, s_, done):
@@ -178,7 +211,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [0]*len(self.actions),
+                    [0.]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
@@ -191,11 +224,13 @@ if __name__ == "__main__":
     grid = pickle.load(f)
     width = 20
     print("Finish first step")
-    env = GridworldEnv(data, grid, width)
+    env = GridworldEnv(data, grid, width, False)
     state = env.position
     action_list = ['up', 'down', 'right', 'left']
     QL = QLearningTable(actions = action_list)
     print("State is ", state)
+    
+    reward_sum = 0
 
     for episode in range(100000):
         done = False
@@ -206,7 +241,31 @@ if __name__ == "__main__":
             next_state, reward, done, info = env.step(action)
             
             #Learning
-            QL.learn(str(state), action, reward, str(next_state), done)
+            if not done:
+                QL.learn(str(state), action, reward, str(next_state), done)
+            else:
+                QL.learn(str(state), action, 0, 'terminal', done)
+
+            #Update state
+            state = next_state
+            
+            if info is not None:
+                reward_sum = reward_sum * 0.9 + info * 0.1
+            
+            if(episode%1000 == 998):
+                print("Reward: ", reward_sum)
+                print(QL.q_table.sum().sum())
+
+    env.user = True
+    env.reset()
+
+    for episode in range(100000):
+        done = False
+        while not done:
+            #Choose an action
+            action = QL.choose_action(str(state), greedy = False)
+            #Get reward
+            next_state, reward, done, info = env.step(action)
 
             #Update state
             state = next_state
