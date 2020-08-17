@@ -31,7 +31,7 @@ class UserModel():
         self.rating_index = 0
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, n, user = False):
+    def __init__(self, data, gridworld, n, user = False, init_times = 2):
         self.data = data
 
         self.size = n
@@ -48,6 +48,11 @@ class GridworldEnv(gym.Env):
         self.user_model = UserModel(self.data)
         self.train_x = 0
         self.train_y = 0
+        self.sim_table = np.empty([self.size, self.size])
+        self.cnt = 0
+        self.init_times = init_times
+        self.positions = []
+        self.rec = set([])
 
         #Initialize
         self.reset()
@@ -59,21 +64,23 @@ class GridworldEnv(gym.Env):
         recommendations = self.gridworld[i][j][1]
         return recommendations
 
-    def initial_pos(self):
+    def initial_pos(self, n):
         # initial the starting position in the gridworld
-        similarity = -1e9
-        position = ()
         for i in range(self.size):
             for j in range(self.size):
-                temp = self.Similarity(self.get_recommendation(i,j),self.user_record)
-                if temp > similarity:
-                    similarity = temp
-                    position = (i,j)
-        return position
+                self.sim_table[i, j] = self.Similarity(self.get_recommendation(i,j),self.user_record)
+        tmp = np.argpartition(self.sim_table.reshape(-1), -n)[-n:]
+        self.positions = [(int(i/self.size), i%self.size) for i in tmp]
 
-    def new_user(self):
-        self.user_record = self.user_model.generate_new_user()
-        self.position = self.initial_pos()
+    def new_pos(self):
+        if self.cnt == 0:
+            self.user_record = self.user_model.generate_new_user()
+            self.initial_pos(self.init_times)
+            self.position = self.positions[0]
+        else:
+            self.position = self.positions[self.cnt]
+        self.cnt += 1
+        self.cnt %= self.init_times
     
     def Similarity(self, current_recommendation, next_recommendation):
         # calculate similarity
@@ -89,8 +96,8 @@ class GridworldEnv(gym.Env):
         number = 0
         #print(self.interaction_times)
         number = len(self.user_record & recommendations)
-        self.recall = self.recall * 0.9 + number/len(self.user_record) * 0.1
-        self.precision = self.precision * 0.9 + number/len(recommendations) * 0.1
+        self.recall = self.recall * 0.99 + number/len(self.user_record) * 0.01
+        self.precision = self.precision * 0.99 + number/len(recommendations) * 0.01
         return self.precision, self.recall
 
     def update_train(self):
@@ -133,8 +140,11 @@ class GridworldEnv(gym.Env):
         if done:
             reward = 0
             if self.user:
-                info = self.CTR(self.recommendations)   #info is the CTR
-                self.new_user()
+                self.rec = self.rec | self.recommendations
+                if self.cnt == 0:
+                    info = self.CTR(self.rec)   #info is the CTR
+                    self.rec = set([])
+                self.new_pos()
                 state = self.position
             else:
                 info = self.reward_sum
@@ -157,7 +167,7 @@ class GridworldEnv(gym.Env):
             self.recall = 0
             self.user_record = set([])
             self.user_model.reset()
-            self.new_user()
+            self.new_pos()
         else:
             self.reward_sum = 0
             self.position = (self.train_x, self.train_y)
@@ -211,7 +221,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [0.]*len(self.actions),
+                    [1.3]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
@@ -232,7 +242,7 @@ if __name__ == "__main__":
     
     reward_sum = 0
 
-    for episode in range(100000):
+    '''for episode in range(100000):
         done = False
         while not done:
             #Choose an action
@@ -256,6 +266,14 @@ if __name__ == "__main__":
                 print("Reward: ", reward_sum)
                 print(QL.q_table.sum().sum())
 
+    f = open("ql","wb")
+    pickle.dump(QL, f)
+    f.close()'''
+
+    f = open("ql","rb")
+    QL = pickle.load(f)
+    f.close()
+
     env.user = True
     env.reset()
 
@@ -275,4 +293,6 @@ if __name__ == "__main__":
             
             if(episode%1000 == 999):
                 print("Precision: ", precision, ", Recall: ", recall)
+    
+
     print("End")
