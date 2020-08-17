@@ -31,7 +31,7 @@ class UserModel():
         self.rating_index = 0
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, n, user = False, init_times = 2):
+    def __init__(self, data, gridworld, n, user = False, init_times = 5):
         self.data = data
 
         self.size = n
