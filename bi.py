@@ -59,16 +59,20 @@ class GridworldEnv(gym.Env):
 
 
 
-    def get_recommendation(self, i, j):
+    def get_item(self, i, j):
         #Get recommendations from gridworld
         recommendations = self.gridworld[i][j][1]
         return recommendations
+
+    def get_user(self, i, j):
+        #Get recommendations from gridworld
+        return self.gridworld[i][j][0]
 
     def initial_pos(self, n):
         # initial the starting position in the gridworld
         for i in range(self.size):
             for j in range(self.size):
-                self.sim_table[i, j] = self.Similarity(self.get_recommendation(i,j),self.user_record)
+                self.sim_table[i, j] = self.sim_i(self.get_item(i,j),self.user_record)
         tmp = np.argpartition(self.sim_table.reshape(-1), -n)[-n:]
         self.positions = [(int(i/self.size), i%self.size) for i in tmp]
 
@@ -82,13 +86,18 @@ class GridworldEnv(gym.Env):
         self.cnt += 1
         self.cnt %= self.init_times
     
-    def Similarity(self, current_recommendation, next_recommendation):
+    def sim_i(self, current_recommendation, next_recommendation):
         # calculate similarity
         similarity = 0
         intersection = set(current_recommendation) & set(next_recommendation)
         union = set(current_recommendation) | set(next_recommendation)
         similarity = len(intersection)/len(union)
         return similarity
+    
+    def sim_u(self, users1, users2):
+        tp1 = set([users1])
+        tp2 = set([users2])
+        return len(tp1 & tp2) / len(tp1 | tp2)
 
     def CTR(self, recommendations):
         # calculate click through rate of the whole recommendations
@@ -96,8 +105,8 @@ class GridworldEnv(gym.Env):
         number = 0
         #print(self.interaction_times)
         number = len(self.user_record & recommendations)
-        self.recall = self.recall * 0.99 + number/len(self.user_record) * 0.01
-        self.precision = self.precision * 0.99 + number/len(recommendations) * 0.01
+        self.recall += (number/len(self.user_record) - self.recall) * 0.01
+        self.precision += (number/len(recommendations) - self.precision) * 0.01
         return self.precision, self.recall
 
     def update_train(self):
@@ -119,9 +128,11 @@ class GridworldEnv(gym.Env):
         if(pos1 > self.size - 1): pos1 = self.size - 1
         next_position = (pos0, pos1)
         
-        current_recommendation = self.get_recommendation(self.position[0],self.position[1])
-        next_recommendation = self.get_recommendation(next_position[0], next_position[1])
-        reward = self.Similarity(current_recommendation, next_recommendation)
+        current_user = self.get_user(self.position[0],self.position[1])
+        next_user = self.get_user(next_position[0], next_position[1])
+        current_recommendation = self.get_item(self.position[0],self.position[1])
+        next_recommendation = self.get_item(next_position[0], next_position[1])
+        reward = self.sim_i(current_user, next_user)
 
         state = next_position
         self.position = next_position
@@ -221,7 +232,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [1.3]*len(self.actions),
+                    [1.9]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
