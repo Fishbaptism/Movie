@@ -14,17 +14,22 @@ class UserModel():
         record = []
         #print("Begin to collect record")
         #print(self.rating_index,self.data.iloc[self.rating_index].userId)
-        if self.userId > 1409:
-            self.userId = 758   #Change the start and end user Id here
-            self.rating_index = 0
-        while(self.rating_index < 99224 and self.data.iloc[self.rating_index].userId == self.userId):
-            if self.data.iloc[self.rating_index].rating > 3:
-                record += [self.data.iloc[self.rating_index].movieId]    
-            self.rating_index += 1
-        self.userId += 1 #prepare for the next user
+        while True:
+            if self.userId > 1409:
+                self.userId = 758   #Change the start and end user Id here
+                self.rating_index = 0
+            while(self.rating_index < 99224 and self.data.iloc[self.rating_index].userId == self.userId):
+                if self.data.iloc[self.rating_index].rating > 3:
+                    record += [self.data.iloc[self.rating_index].movieId]    
+                self.rating_index += 1
+
+            self.userId += 1 #prepare for the next user
+            if len(record) > 30:
+                break
 
         #print("User record is ", record)
-        return set(record)
+        tp = max(int(0.1 * len(record)), 5)
+        return set(record[:tp]), set(record[tp:])
 
     def reset(self):
         self.userId = 758
@@ -53,6 +58,7 @@ class GridworldEnv(gym.Env):
         self.init_times = init_times
         self.positions = []
         self.rec = set([])
+        self.prn = 0
 
         #Initialize
         self.reset()
@@ -72,13 +78,13 @@ class GridworldEnv(gym.Env):
         # initial the starting position in the gridworld
         for i in range(self.size):
             for j in range(self.size):
-                self.sim_table[i, j] = self.sim_i(self.get_item(i,j),self.user_record)
+                self.sim_table[i, j] = self.sim_i(self.get_item(i,j), self.user_record)
         tmp = np.argpartition(self.sim_table.reshape(-1), -n)[-n:]
         self.positions = [(int(i/self.size), i%self.size) for i in tmp]
 
     def new_pos(self):
         if self.cnt == 0:
-            self.user_record = self.user_model.generate_new_user()
+            self.user_record, self.user_test = self.user_model.generate_new_user()
             self.initial_pos(self.init_times)
             self.position = self.positions[0]
         else:
@@ -104,10 +110,16 @@ class GridworldEnv(gym.Env):
         # User click item in recommendations/len(recommendations)
         number = 0
         #print(self.interaction_times)
-        number = len(self.user_record & recommendations)
-        self.recall += (number/len(self.user_record) - self.recall) * 0.01
-        self.precision += (number/len(recommendations) - self.precision) * 0.01
-        return self.precision, self.recall
+        number = len(self.user_test & recommendations)
+        self.recall += number/len(self.user_test)
+        self.prn += 1
+        self.precision += number/len(recommendations)
+        return self.precision / self.prn, self.recall / self.prn
+
+    def CTR_clear(self):
+        self.prn = 0
+        self.recall = 0
+        self.precision = 0
 
     def update_train(self):
         self.train_y += 1
@@ -232,7 +244,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [1.9]*len(self.actions),
+                    [2.5]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
@@ -253,7 +265,7 @@ if __name__ == "__main__":
     
     reward_sum = 0
 
-    '''for episode in range(100000):
+    for episode in range(300000):
         done = False
         while not done:
             #Choose an action
@@ -279,7 +291,7 @@ if __name__ == "__main__":
 
     f = open("ql","wb")
     pickle.dump(QL, f)
-    f.close()'''
+    f.close()
 
     f = open("ql","rb")
     QL = pickle.load(f)
@@ -302,8 +314,9 @@ if __name__ == "__main__":
             if info is not None:
                 precision, recall = info
             
-            if(episode%1000 == 999):
-                print("Precision: ", precision, ", Recall: ", recall)
+        if(episode%5000 == 999):
+            print(env.prn, "Precision: ", precision, ", Recall: ", recall)
+            env.CTR_clear()
     
 
     print("End")
