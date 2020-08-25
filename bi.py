@@ -3,15 +3,26 @@ import numpy as np
 import gym
 from gym import spaces
 import pickle
+import random
 
 class UserModel():
     def __init__(self, data):
         self.data = data    #data should be pd.read_csv
-        self.userId = 758   #Change the start user Id here
-        self.rating_index = 0
+        #self.userId = 758   #Change the start user Id here
+        #self.rating_index = 0
+        self.ind = 0
 
     def generate_new_user(self):
+        tp = self.data[self.ind]
+        self.ind += 1
+        self.ind %= len(data)
         record = []
+        for i in tp:
+            movie = i[0]
+            value = i[1]
+            if value:
+                record.append(movie)
+        '''record = []
         #print("Begin to collect record")
         #print(self.rating_index,self.data.iloc[self.rating_index].userId)
         while True:
@@ -25,19 +36,23 @@ class UserModel():
 
             self.userId += 1 #prepare for the next user
             if len(record) > 30:
-                break
+                break'''
 
         #print("User record is ", record)
-        tp = max(int(0.1 * len(record)), 5)
-        return set(record[:tp]), set(record[tp:])
+        tp = max(int(0.1 * len(record)), 1)
+        train = set(random.sample(record, tp))
+        test = set(record) - train
+        return train, test
 
     def reset(self):
-        self.userId = 758
-        self.rating_index = 0
+        #self.userId = 758
+        #self.rating_index = 0
+        self.ind = 0
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, n, user = False, init_times = 5):
+    def __init__(self, data, gridworld, n, user = False, init_times = 10, N = 50):
         self.data = data
+        self.N = N
 
         self.size = n
         self.gridworld = gridworld
@@ -67,18 +82,18 @@ class GridworldEnv(gym.Env):
 
     def get_item(self, i, j):
         #Get recommendations from gridworld
-        recommendations = self.gridworld[i][j][1]
+        recommendations = set(self.gridworld[i][j][1])
         return recommendations
 
     def get_user(self, i, j):
         #Get recommendations from gridworld
-        return self.gridworld[i][j][0]
+        return set(self.gridworld[i][j][0])
 
     def initial_pos(self, n):
         # initial the starting position in the gridworld
         for i in range(self.size):
             for j in range(self.size):
-                self.sim_table[i, j] = self.sim_i(self.get_item(i,j), self.user_record)
+                self.sim_table[i, j] = self.sim(self.get_item(i,j), self.user_record)
         tmp = np.argpartition(self.sim_table.reshape(-1), -n)[-n:]
         self.positions = [(int(i/self.size), i%self.size) for i in tmp]
 
@@ -92,18 +107,13 @@ class GridworldEnv(gym.Env):
         self.cnt += 1
         self.cnt %= self.init_times
     
-    def sim_i(self, current_recommendation, next_recommendation):
+    def sim(self, current_recommendation, next_recommendation):
         # calculate similarity
         similarity = 0
-        intersection = set(current_recommendation) & set(next_recommendation)
-        union = set(current_recommendation) | set(next_recommendation)
+        intersection = current_recommendation & next_recommendation
+        union = current_recommendation | next_recommendation
         similarity = len(intersection)/len(union)
         return similarity
-    
-    def sim_u(self, users1, users2):
-        tp1 = set([users1])
-        tp2 = set([users2])
-        return len(tp1 & tp2) / len(tp1 | tp2)
 
     def CTR(self, recommendations):
         # calculate click through rate of the whole recommendations
@@ -112,8 +122,8 @@ class GridworldEnv(gym.Env):
         #print(self.interaction_times)
         number = len(self.user_test & recommendations)
         self.recall += number/len(self.user_test)
-        self.prn += 1
         self.precision += number/len(recommendations)
+        self.prn += 1
         return self.precision / self.prn, self.recall / self.prn
 
     def CTR_clear(self):
@@ -144,33 +154,42 @@ class GridworldEnv(gym.Env):
         next_user = self.get_user(next_position[0], next_position[1])
         current_recommendation = self.get_item(self.position[0],self.position[1])
         next_recommendation = self.get_item(next_position[0], next_position[1])
-        reward = self.sim_i(current_user, next_user)
+        reward = self.sim(current_user, next_user)
 
         state = next_position
         self.position = next_position
 
-        #Add current recommendations to the set
-        self.recommendations = self.recommendations | set(current_recommendation)
         info = None
+        
+        if self.user:
+            tmp = self.rec | self.recommendations | current_recommendation
 
-        #For a new user
-        done = True
-        for i in next_recommendation:
-            if i not in self.recommendations:
-                done = False
-                break
+        if not self.user or len(tmp) < self.N:
+            self.recommendations = tmp
+            #For a new user
+            done = len(next_recommendation - self.recommendations) == 0
+        else:
+            tp2 = self.rec | self.recommendations
+            tp = len(tp2)
+            self.recommendations |= set(random.sample(current_recommendation - tp2, self.N - tp))
+            done = True
+        
+        #Add current recommendations to the set
 
         if done:
             reward = 0
             if self.user:
                 self.rec = self.rec | self.recommendations
+                if len(self.rec) >= self.N:
+                    self.cnt = 0
                 if self.cnt == 0:
                     info = self.CTR(self.rec)   #info is the CTR
                     self.rec = set([])
                 self.new_pos()
                 state = self.position
             else:
-                info = self.reward_sum
+                info = (self.reward_sum, self.turns)
+                self.turns = int(0)
                 self.reward_sum = 0
                 self.position = (self.train_x, self.train_y)
                 state = self.position
@@ -178,6 +197,7 @@ class GridworldEnv(gym.Env):
             self.recommendations = set([])
         else:
             self.reward_sum += reward
+            self.turns += 1
         #Return state, reward and done.
         #Here, self.state is the next state
         return state, reward, done, info
@@ -189,10 +209,12 @@ class GridworldEnv(gym.Env):
             self.precision = 0
             self.recall = 0
             self.user_record = set([])
+            self.user_test = set([])
             self.user_model.reset()
             self.new_pos()
         else:
             self.reward_sum = 0
+            self.turns = 0
             self.position = (self.train_x, self.train_y)
             self.update_train()
 
@@ -244,7 +266,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [2.5]*len(self.actions),
+                    [2.4]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
@@ -252,9 +274,12 @@ class QLearningTable:
 
 
 if __name__ == "__main__":
-    data = pd.read_csv('100kRatings2.csv')
+    f2 = open("test","rb")
+    data = pickle.load(f2)
+    f2.close()
     f = open("grid","rb")
     grid = pickle.load(f)
+    f.close()
     width = 20
     print("Finish first step")
     env = GridworldEnv(data, grid, width, False)
@@ -263,9 +288,10 @@ if __name__ == "__main__":
     QL = QLearningTable(actions = action_list)
     print("State is ", state)
     
-    reward_sum = 0
+    reward_sum = 4
+    turns = 5
 
-    for episode in range(300000):
+    '''for episode in range(300000):
         done = False
         while not done:
             #Choose an action
@@ -283,15 +309,18 @@ if __name__ == "__main__":
             state = next_state
             
             if info is not None:
-                reward_sum = reward_sum * 0.9 + info * 0.1
+                reward_sum = reward_sum * 0.99 + info[0] * 0.01
+                turns = turns * 0.99 + info[1] * 0.01
             
             if(episode%1000 == 998):
+                print("Episode: ", episode)
                 print("Reward: ", reward_sum)
+                print("Rounds: ", turns)
                 print(QL.q_table.sum().sum())
 
     f = open("ql","wb")
     pickle.dump(QL, f)
-    f.close()
+    f.close()'''
 
     f = open("ql","rb")
     QL = pickle.load(f)
@@ -315,6 +344,7 @@ if __name__ == "__main__":
                 precision, recall = info
             
         if(episode%5000 == 999):
+            print("Episode: ", episode)
             print(env.prn, "Precision: ", precision, ", Recall: ", recall)
             env.CTR_clear()
     
