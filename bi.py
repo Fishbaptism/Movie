@@ -165,9 +165,11 @@ class GridworldEnv(gym.Env):
             tmp = self.rec | self.recommendations | current_recommendation
 
         if not self.user or len(tmp) < self.N:
-            self.recommendations = tmp
+            if self.user:
+                self.recommendations = tmp
             #For a new user
             done = len(next_recommendation - self.recommendations) == 0
+            self.recommendations |= current_recommendation
         else:
             tp2 = self.rec | self.recommendations
             tp = len(tp2)
@@ -291,7 +293,7 @@ if __name__ == "__main__":
     reward_sum = 4
     turns = 5
 
-    '''for episode in range(300000):
+    for episode in range(300000):
         done = False
         while not done:
             #Choose an action
@@ -320,7 +322,7 @@ if __name__ == "__main__":
 
     f = open("ql","wb")
     pickle.dump(QL, f)
-    f.close()'''
+    f.close()
 
     f = open("ql","rb")
     QL = pickle.load(f)
