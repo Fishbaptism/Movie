@@ -168,8 +168,8 @@ class GridworldEnv(gym.Env):
             if self.user:
                 self.recommendations = tmp
             #For a new user
-            done = len(next_recommendation - self.recommendations) == 0
             self.recommendations |= current_recommendation
+            done = len(next_recommendation - self.recommendations) == 0
         else:
             tp2 = self.rec | self.recommendations
             tp = len(tp2)
