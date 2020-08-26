@@ -314,11 +314,11 @@ if __name__ == "__main__":
                 reward_sum = reward_sum * 0.99 + info[0] * 0.01
                 turns = turns * 0.99 + info[1] * 0.01
             
-            if(episode%1000 == 998):
-                print("Episode: ", episode)
-                print("Reward: ", reward_sum)
-                print("Rounds: ", turns)
-                print(QL.q_table.sum().sum())
+        if(episode%1000 == 998):
+            print("Episode: ", episode)
+            print("Reward: ", reward_sum)
+            print("Rounds: ", turns)
+            print(QL.q_table.sum().sum())
 
     f = open("ql","wb")
     pickle.dump(QL, f)
