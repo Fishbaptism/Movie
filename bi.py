@@ -50,7 +50,7 @@ class UserModel():
         self.ind = 0
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, n, user = False, init_times = 10, N = 50):
+    def __init__(self, data, gridworld, n, user = False, init_times = 10, N = 30):
         self.data = data
         self.N = N
 
@@ -268,7 +268,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [2.4]*len(self.actions),
+                    [2.1]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     reward_sum = 4
     turns = 5
 
-    for episode in range(300000):
+    for episode in range(200000):
         done = False
         while not done:
             #Choose an action
@@ -314,7 +314,7 @@ if __name__ == "__main__":
                 reward_sum = reward_sum * 0.99 + info[0] * 0.01
                 turns = turns * 0.99 + info[1] * 0.01
             
-        if(episode%1000 == 998):
+        if(episode%800 == 799):
             print("Episode: ", episode)
             print("Reward: ", reward_sum)
             print("Rounds: ", turns)
@@ -331,7 +331,7 @@ if __name__ == "__main__":
     env.user = True
     env.reset()
 
-    for episode in range(100000):
+    for episode in range(50000):
         done = False
         while not done:
             #Choose an action
