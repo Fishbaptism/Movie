@@ -268,7 +268,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [2.1]*len(self.actions),
+                    [1.9]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     reward_sum = 4
     turns = 5
 
-    for episode in range(200000):
+    '''for episode in range(200000):
         done = False
         while not done:
             #Choose an action
@@ -322,7 +322,7 @@ if __name__ == "__main__":
 
     f = open("ql","wb")
     pickle.dump(QL, f)
-    f.close()
+    f.close()'''
 
     f = open("ql","rb")
     QL = pickle.load(f)
