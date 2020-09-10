@@ -50,7 +50,7 @@ class UserModel():
         self.ind = 0
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, n, user = False, init_times = 10, N = 50):
+    def __init__(self, data, gridworld, n, user = False, init_times = 10, N = 30):
         self.data = data
         self.N = N
 
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     reward_sum = 4
     turns = 5
 
-    '''for episode in range(200000):
+    for episode in range(200000):
         done = False
         while not done:
             #Choose an action
@@ -322,7 +322,7 @@ if __name__ == "__main__":
 
     f = open("ql","wb")
     pickle.dump(QL, f)
-    f.close()'''
+    f.close()
 
     f = open("ql","rb")
     QL = pickle.load(f)
