@@ -50,7 +50,7 @@ class UserModel():
         self.ind = 0
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, n, user = False, init_times = 10, N = 30):
+    def __init__(self, data, gridworld, n, user = False, init_times = 10, N = 50):
         self.data = data
         self.N = N
 

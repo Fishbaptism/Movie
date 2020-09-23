@@ -4,6 +4,7 @@ import gym
 from gym import spaces
 import pickle
 import random
+import copy
 
 class UserModel():
     def __init__(self, data):
@@ -54,9 +55,10 @@ class UserModel():
 
 
 class GridworldEnv(gym.Env):
-    def __init__(self, data, gridworld, gridworld1, gridworld2, n, grid_num, user = False, init_times = 5, N = 30):
+    def __init__(self, data, gridworld, gridworld1, gridworld2, posList, posRev, n, grid_num, user = False, init_times = 5, N = 50):
         self.data = data
-
+        self.posList = posList
+        self.posRev = posRev
         self.N = N  # N is the maximum number of recommendations
         self.size = n
         self.gridworld = [gridworld, gridworld1, gridworld2] #TODO: Should read several gridworlds
@@ -92,18 +94,12 @@ class GridworldEnv(gym.Env):
         #Initialize
         self.reset()
 
-    def BlockTracing(self, user_list, item_list):
+    def BlockTracing(self, i, j, Rev = None):
         #Given user list and item list, change all positions in all grids to the same block.
+        if Rev is not None:
+            i, j = self.posRev[Rev][i][j]
         for grid_id in range(self.gridnumber):
-            i = 0
-            j = 0
-            while (self.gridworld[grid_id][i][j][0] != user_list) | (self.gridworld[grid_id][i][j][1] != item_list):
-                if i == self.size - 1:
-                    j = j + 1
-                    i = 0
-                else:
-                    i = i + 1
-            self.grid_pos[grid_id] = (i, j)
+            self.grid_pos[grid_id] = self.posList[grid_id][i][j]
 
 
     def get_item(self, i, j, grid_id):
@@ -130,14 +126,10 @@ class GridworldEnv(gym.Env):
             self.user_record, self.user_test = self.user_model.generate_new_user()
             self.initial_pos(self.init_times)
             i, j = self.positions[0]
-            user_list = self.gridworld[0][i][j][0]
-            item_list = self.gridworld[0][i][j][1]
-            self.BlockTracing(user_list, item_list)
+            self.BlockTracing(i, j)
         else:
             i, j = self.positions[self.cnt]
-            user_list = self.gridworld[0][i][j][0]
-            item_list = self.gridworld[0][i][j][1]
-            self.BlockTracing(user_list, item_list)
+            self.BlockTracing(i, j)
         self.cnt += 1
         self.cnt %= self.init_times
 
@@ -190,7 +182,7 @@ class GridworldEnv(gym.Env):
     def step(self, action):
         # define the step
         # Find action
-        print("In step, state is ", self.grid_pos, "action is ", action)
+        #print("In step, state is ", self.grid_pos, "action is ", action)
         action_code = int(action)
         action_id = action_code%4
         grid_id = int(action_code/4)
@@ -211,7 +203,7 @@ class GridworldEnv(gym.Env):
         next_recommendation = self.get_item(next_position[0], next_position[1], grid_id)
         reward = self.sim(current_user, next_user)
 
-        self.BlockTracing(next_user, next_recommendation)
+        self.BlockTracing(next_position[0], next_position[1], grid_id)
         state = self.grid_pos.copy()
 
         info = None
@@ -251,9 +243,7 @@ class GridworldEnv(gym.Env):
                 self.turns = int(0)
                 self.reward_sum = 0
                 idx0, idx1 = (self.train_x, self.train_y)
-                user_list = self.gridworld[0][idx0][idx1][0]
-                item_list = self.gridworld[0][idx0][idx1][1]
-                self.BlockTracing(user_list, item_list)
+                self.BlockTracing(idx0, idx1)
                 state = self.grid_pos.copy()
                 self.update_train()
             self.recommendations = set([])
@@ -280,9 +270,7 @@ class GridworldEnv(gym.Env):
         else:
             self.reward_sum = 0
             self.turns = 0
-            user_list = self.gridworld[0][self.train_x][self.train_y][0]
-            item_list = self.gridworld[0][self.train_x][self.train_y][1]
-            self.BlockTracing(user_list, item_list)
+            self.BlockTracing(self.train_x, self.train_y)
             self.update_train()
 
 class QLearningTable:
@@ -342,7 +330,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(
                 pd.Series(
-                    [1.9]*len(self.actions),
+                    [3.]*len(self.actions),
                     index=self.q_table.columns,
                     name=state,
                 )
@@ -417,6 +405,7 @@ if __name__ == "__main__":
     print("End")
     '''
 if __name__ == "__main__":
+    width = 20
     f2 = open("test","rb")
     data = pickle.load(f2)
     f2.close()
@@ -429,9 +418,18 @@ if __name__ == "__main__":
     f3 = open("grid2","rb")
     grid2 = pickle.load(f3)
     f3.close()
-    width = 20
+    f4 = open("pos","rb")
+    posList = pickle.load(f4)
+    f4.close()
+    posRev = copy.deepcopy(posList)
+    for k in range(1, 3):
+        for i in range(20):
+            for j in range(20):
+                tp1, tp2 = posList[k][i][j]
+                posRev[k][tp1][tp2] = (i, j)
+
     print("Finish first step")
-    env = GridworldEnv(data, grid, grid1, grid2, width, 3, False)
+    env = GridworldEnv(data, grid, grid1, grid2, posList, posRev, width, 3, False)
     state = env.grid_pos.copy()
     action_list = env.actions
     QL = QLearningTable(action_list)
@@ -464,17 +462,17 @@ if __name__ == "__main__":
                 reward_sum = reward_sum * 0.99 + info[0] * 0.01
                 turns = turns * 0.99 + info[1] * 0.01
             
-        if(episode%800 == 799):
+        if(episode%20 == 19):
             print("Episode: ", episode)
             print("Reward: ", reward_sum)
             print("Rounds: ", turns)
             print(QL.q_table.sum().sum())
 
-    f = open("ql","wb")
+    f = open("ql2","wb")
     pickle.dump(QL, f)
     f.close()
 
-    f = open("ql","rb")
+    f = open("ql2","rb")
     QL = pickle.load(f)
     f.close()
 
@@ -499,6 +497,5 @@ if __name__ == "__main__":
             print("Episode: ", episode)
             print(env.prn, "Precision: ", precision, ", Recall: ", recall)
             env.CTR_clear()
-    
 
     print("End")
